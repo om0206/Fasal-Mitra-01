@@ -1,98 +1,224 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { ScrollView, StyleSheet, View, Text, ActivityIndicator, Alert } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+import { AdvisoryCard } from '@/components/AdvisoryCard';
+import { RiskAlertBanner } from '@/components/RiskAlertBanner';
+import { InputForm } from '@/components/InputForm';
+import { apiService } from '@/services/api';
 
-export default function HomeScreen() {
+interface Advisory {
+  advisory_text: string;
+  recommendations: string;
+  weather_condition: string;
+  risk_alerts?: Array<{
+    alert_type: string;
+    severity: string;
+    message: string;
+    trigger_conditions: string;
+  }>;
+}
+
+export default function AdvisoryScreen() {
+  const [crops, setCrops] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [advisory, setAdvisory] = useState<Advisory | null>(null);
+  const [selectedCrop, setSelectedCrop] = useState<string>('');
+  const [selectedStage, setSelectedStage] = useState<string>('');
+  const [serverConnection, setServerConnection] = useState(true);
+
+  useEffect(() => {
+    loadCrops();
+    checkServerConnection();
+  }, []);
+
+  const checkServerConnection = async () => {
+    try {
+      await apiService.healthCheck();
+      setServerConnection(true);
+    } catch (error) {
+      console.error('Server connection failed:', error);
+      setServerConnection(false);
+      Alert.alert(
+        'Connection Error',
+        'Could not connect to the advisory server. Please ensure the backend is running on http://localhost:8000'
+      );
+    }
+  };
+
+  const loadCrops = async () => {
+    try {
+      const cropsData = await apiService.getCrops();
+      const cropNames = cropsData.map((crop: any) => crop.name);
+      setCrops(cropNames);
+    } catch (error) {
+      console.error('Error loading crops:', error);
+      Alert.alert('Error', 'Failed to load crops. Please check your connection.');
+    }
+  };
+
+  const handleGetAdvisory = async (cropType: string, growthStage: string) => {
+    try {
+      setLoading(true);
+      setSelectedCrop(cropType);
+      setSelectedStage(growthStage);
+
+      const response = await apiService.getAdvisory(cropType, growthStage);
+      setAdvisory(response);
+    } catch (error: any) {
+      console.error('Error fetching advisory:', error);
+      Alert.alert(
+        'Error',
+        error.response?.data?.detail || 'Failed to generate advisory. Please try again.'
+      );
+      setAdvisory(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {/* Header */}
+        <View style={styles.header}>
+          <MaterialCommunityIcons name="leaf-circle" size={32} color="#27ae60" />
+          <Text style={styles.titleText}>Crop Advisory</Text>
+          <Text style={styles.subtitleText}>AI-Powered Agricultural Guidance</Text>
+        </View>
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+        {/* Connection Status */}
+        {!serverConnection && (
+          <View style={styles.warningBanner}>
+            <MaterialCommunityIcons name="alert" size={20} color="#e74c3c" />
+            <Text style={styles.warningText}>
+              Backend server is not connected. Please start the FastAPI server.
+            </Text>
+          </View>
+        )}
+
+        {/* Input Form */}
+        <InputForm
+          crops={crops}
+          onSubmit={handleGetAdvisory}
+          loading={loading}
+        />
+
+        {/* Loading Indicator */}
+        {loading && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#27ae60" />
+            <Text style={styles.loadingText}>Generating advisory...</Text>
+          </View>
+        )}
+
+        {/* Risk Alerts */}
+        {advisory && !loading && (
+          <>
+            <Text style={styles.sectionHeader}>Risk Assessment</Text>
+            <RiskAlertBanner alerts={advisory.risk_alerts || []} />
+          </>
+        )}
+
+        {/* Advisory Card */}
+        {advisory && !loading && (
+          <>
+            <Text style={styles.sectionHeader}>Your Advisory</Text>
+            <AdvisoryCard
+              cropType={selectedCrop}
+              growthStage={selectedStage}
+              advisoryText={advisory.advisory_text}
+              recommendations={advisory.recommendations}
+              weatherCondition={advisory.weather_condition}
+            />
+          </>
+        )}
+
+        {/* Empty State */}
+        {!advisory && !loading && crops.length > 0 && (
+          <View style={styles.emptyState}>
+            <MaterialCommunityIcons name="information-outline" size={48} color="#95a5a6" />
+            <Text style={styles.emptyStateText}>Select your crop and growth stage to get started</Text>
+          </View>
+        )}
+
+        {/* Padding */}
+        <View style={{ height: 30 }} />
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  container: {
+    flex: 1,
+    backgroundColor: '#f5f7fa',
+  },
+  scrollView: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 24,
+    marginTop: 12,
+  },
+  titleText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+    marginTop: 8,
+  },
+  subtitleText: {
+    fontSize: 14,
+    color: '#7f8c8d',
+    marginTop: 4,
+  },
+  warningBanner: {
+    backgroundColor: '#fadbd8',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 16,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  warningText: {
+    fontSize: 12,
+    color: '#c0392b',
+    marginLeft: 10,
+    flex: 1,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  sectionHeader: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2c3e50',
+    marginTop: 16,
+    marginBottom: 10,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#7f8c8d',
+    marginTop: 12,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 60,
+  },
+  emptyStateText: {
+    fontSize: 14,
+    color: '#95a5a6',
+    marginTop: 12,
+    textAlign: 'center',
   },
 });
+
